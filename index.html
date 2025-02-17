@@ -177,7 +177,7 @@
 </head>
 <body>
     <nav class="navbar">
-        <h1>CepyXmail</h1>
+        <h1>CepyMail</h1>
     </nav>
 
     <div class="container">
@@ -208,7 +208,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        const API_BASE = 'https://www.1secmail.com/api/v1/';
+        const API_URL = 'https://tempmail-api.vercel.app/api';
         let currentEmail = localStorage.getItem('currentEmail') || '';
         
         const generateBtn = document.getElementById('generateBtn');
@@ -242,11 +242,11 @@
         async function generateEmail() {
             showLoading();
             try {
-                const response = await fetch(`${API_BASE}?action=genRandomMailbox&count=1`);
+                const response = await fetch(`${API_URL}/generate`);
                 const data = await response.json();
                 
-                if (data && data.length > 0) {
-                    currentEmail = data[0];
+                if (data.success && data.email) {
+                    currentEmail = data.email;
                     localStorage.setItem('currentEmail', currentEmail);
                     
                     emailDisplay.innerHTML = `
@@ -260,7 +260,7 @@
                     showToast('Yeni e-posta adresi oluşturuldu!');
                     checkEmails();
                 } else {
-                    throw new Error('E-posta oluşturulamadı');
+                    throw new Error(data.message || 'E-posta oluşturulamadı');
                 }
             } catch (error) {
                 console.error('E-posta oluşturma hatası:', error);
@@ -278,9 +278,14 @@
 
             showLoading();
             try {
-                const [username, domain] = currentEmail.split('@');
-                const response = await fetch(`${API_BASE}?action=getMessages&login=${username}&domain=${domain}`);
-                const messages = await response.json();
+                const response = await fetch(`${API_URL}/messages?email=${encodeURIComponent(currentEmail)}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message);
+                }
+
+                const messages = data.messages || [];
 
                 if (messages.length === 0) {
                     emailList.innerHTML = '<p style="padding: 1rem;">Henüz bir e-posta alınmadı.</p>';
@@ -289,7 +294,7 @@
                 }
 
                 const messagesHTML = messages.map(msg => `
-                    <div class="email-item" onclick="showEmailContent('${username}', '${domain}', ${msg.id})">
+                    <div class="email-item" onclick="showEmailContent('${msg.id}')">
                         <h3>${msg.subject || 'Konu Yok'}</h3>
                         <p>Gönderen: ${msg.from}</p>
                         <p>Tarih: ${new Date(msg.date).toLocaleString()}</p>
@@ -306,11 +311,17 @@
             }
         }
 
-        async function showEmailContent(login, domain, id) {
+        async function showEmailContent(messageId) {
             showLoading();
             try {
-                const response = await fetch(`${API_BASE}?action=readMessage&login=${login}&domain=${domain}&id=${id}`);
-                const email = await response.json();
+                const response = await fetch(`${API_URL}/message?email=${encodeURIComponent(currentEmail)}&id=${messageId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message);
+                }
+
+                const email = data.message;
 
                 emailList.innerHTML = `
                     <div style="padding: 1rem;">
@@ -322,7 +333,7 @@
                         <p>Gönderen: ${email.from}</p>
                         <p>Tarih: ${new Date(email.date).toLocaleString()}</p>
                         <div style="margin-top: 1rem; padding: 1rem; background: var(--background-color); border-radius: 0.5rem;">
-                            ${email.htmlBody || email.textBody || 'İçerik yok'}
+                            ${email.html || email.text || 'İçerik yok'}
                         </div>
                     </div>
                 `;
