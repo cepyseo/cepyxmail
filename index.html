@@ -154,16 +154,6 @@
             margin-top: 0.5rem;
         }
 
-        @media (max-width: 768px) {
-            .email-controls {
-                flex-direction: column;
-            }
-            
-            .navbar h1 {
-                margin-left: 0;
-            }
-        }
-
         .toast {
             position: fixed;
             top: 20px;
@@ -174,14 +164,20 @@
             border-radius: 5px;
             display: none;
             animation: slideIn 0.5s ease;
+            z-index: 1000;
         }
 
         @keyframes slideIn {
-            from {
-                transform: translateX(100%);
+            from { transform: translateX(100%); }
+            to { transform: translateX(0); }
+        }
+
+        @media (max-width: 768px) {
+            .email-controls {
+                flex-direction: column;
             }
-            to {
-                transform: translateX(0);
+            .navbar h1 {
+                margin-left: 0;
             }
         }
     </style>
@@ -227,16 +223,14 @@
         </div>
     </div>
 
-    <div id="toast" class="toast">E-posta adresi kopyalandı!</div>
+    <div id="toast" class="toast"></div>
 
     <script>
-        // API URL'leri
-        const API_BASE_URL = 'https://api.tempmail.lol';
-        let currentToken = null;
-        let currentEmail = null;
+        let currentUsername = null;
+        let currentDomain = null;
+        const domains = ['1secmail.com', '1secmail.org', '1secmail.net'];
         let checkEmailInterval = null;
 
-        // DOM elementleri
         const generateBtn = document.getElementById('generateEmail');
         const refreshBtn = document.getElementById('refreshInbox');
         const emailDisplay = document.getElementById('currentEmail');
@@ -245,48 +239,48 @@
         const loadingSpan = document.getElementById('loading');
         const toast = document.getElementById('toast');
 
-        // Loading göstergesi fonksiyonları
-        const showLoading = () => {
+        function showLoading() {
             loadingSpan.style.display = 'inline';
             generateBtn.disabled = true;
             refreshBtn.disabled = true;
-        };
+        }
 
-        const hideLoading = () => {
+        function hideLoading() {
             loadingSpan.style.display = 'none';
             generateBtn.disabled = false;
             refreshBtn.disabled = false;
-        };
+        }
 
-        // Toast mesajı gösterme fonksiyonu
-        const showToast = (message) => {
+        function showToast(message) {
             toast.textContent = message;
             toast.style.display = 'block';
             setTimeout(() => {
                 toast.style.display = 'none';
             }, 3000);
-        };
+        }
 
-        // Yeni e-posta oluşturma
+        function generateRandomUsername() {
+            return Math.random().toString(36).substring(2, 12);
+        }
+
+        function getRandomDomain() {
+            return domains[Math.floor(Math.random() * domains.length)];
+        }
+
         async function generateEmail() {
             showLoading();
             try {
-                const response = await fetch(`${API_BASE_URL}/generate`);
-                const data = await response.json();
+                currentUsername = generateRandomUsername();
+                currentDomain = getRandomDomain();
+                const email = `${currentUsername}@${currentDomain}`;
                 
-                currentEmail = data.address;
-                currentToken = data.token;
-                
-                emailDisplay.innerHTML = currentEmail + 
-                    '<button class="copy-btn" id="copyEmail">Kopyala</button>';
-                emailContent.innerHTML = 'Gelen kutunuz boş';
-                
+                emailDisplay.innerHTML = `${email}<button class="copy-btn" id="copyEmail">Kopyala</button>`;
                 document.getElementById('copyEmail').style.display = 'inline';
-                
-                // E-posta kontrol interval'ını başlat
+                emailContent.innerHTML = 'Gelen kutunuz boş';
+
                 if (checkEmailInterval) clearInterval(checkEmailInterval);
-                checkEmailInterval = setInterval(checkEmails, 10000); // Her 10 saniyede bir kontrol
-                
+                checkEmailInterval = setInterval(checkEmails, 10000);
+
                 showToast('Yeni e-posta adresi oluşturuldu!');
             } catch (error) {
                 console.error('E-posta oluşturma hatası:', error);
@@ -296,17 +290,37 @@
             }
         }
 
-        // E-postaları kontrol etme
         async function checkEmails() {
-            if (!currentToken) return;
-            
+            if (!currentUsername || !currentDomain) return;
+
             showLoading();
             try {
-                const response = await fetch(`${API_BASE_URL}/auth/${currentToken}`);
-                const data = await response.json();
-                
-                if (data.email && data.email.length > 0) {
-                    displayEmails(data.email);
+                const response = await fetch(`https://www.1secmail.com/api/v1/?action=getMessages&login=${currentUsername}&domain=${currentDomain}`);
+                const messages = await response.json();
+
+                if (messages.length > 0) {
+                    const emailsHTML = await Promise.all(messages.map(async (message) => {
+                        const messageDetail = await fetch(`https://www.1secmail.com/api/v1/?action=readMessage&login=${currentUsername}&domain=${currentDomain}&id=${message.id}`);
+                        const detail = await messageDetail.json();
+                        
+                        return `
+                            <div class="email-item">
+                                <h4>${detail.subject || 'Konu Yok'}</h4>
+                                <div class="meta">
+                                    Gönderen: ${detail.from}
+                                    <br>
+                                    Tarih: ${new Date(detail.date).toLocaleString()}
+                                </div>
+                                <div class="email-content">
+                                    ${detail.htmlBody || detail.textBody || 'İçerik yok'}
+                                </div>
+                            </div>
+                        `;
+                    }));
+
+                    emailContent.innerHTML = emailsHTML.join('');
+                } else {
+                    emailContent.innerHTML = 'Gelen kutunuz boş';
                 }
             } catch (error) {
                 console.error('E-posta kontrol hatası:', error);
@@ -315,42 +329,15 @@
             }
         }
 
-        // E-postaları görüntüleme
-        function displayEmails(emails) {
-            if (emails.length === 0) {
-                emailContent.innerHTML = 'Gelen kutunuz boş';
-                return;
-            }
-
-            const emailsHTML = emails.map(email => `
-                <div class="email-item">
-                    <h4>${email.subject || 'Konu Yok'}</h4>
-                    <div class="meta">
-                        Gönderen: ${email.from}
-                        <br>
-                        Tarih: ${new Date(email.timestamp).toLocaleString()}
-                    </div>
-                    <div class="email-content">
-                        ${email.html || email.text || 'İçerik yok'}
-                    </div>
-                </div>
-            `).join('');
-
-            emailContent.innerHTML = emailsHTML;
-        }
-
-        // E-posta kopyalama
         document.addEventListener('click', function(e) {
             if (e.target && e.target.id === 'copyEmail') {
-                if (currentEmail) {
-                    navigator.clipboard.writeText(currentEmail)
-                        .then(() => showToast('E-posta adresi kopyalandı!'))
-                        .catch(err => console.error('Kopyalama hatası:', err));
-                }
+                const emailText = emailDisplay.textContent.split('Kopyala')[0].trim();
+                navigator.clipboard.writeText(emailText)
+                    .then(() => showToast('E-posta adresi kopyalandı!'))
+                    .catch(err => console.error('Kopyalama hatası:', err));
             }
         });
 
-        // Event listener'lar
         generateBtn.addEventListener('click', generateEmail);
         refreshBtn.addEventListener('click', checkEmails);
 
