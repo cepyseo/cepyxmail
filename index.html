@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>CepyXmail - Geçici E-posta Servisi</title>
+    <title>TempMail - Geçici E-posta Servisi</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
@@ -177,7 +176,7 @@
 </head>
 <body>
     <nav class="navbar">
-        <h1>CepyMail</h1>
+        <h1>TempMail</h1>
     </nav>
 
     <div class="container">
@@ -208,7 +207,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        const API_URL = 'https://tempmail-api.vercel.app/api';
+        const API_URL = 'https://www.1secmail.com/api/v1/';
         let currentEmail = localStorage.getItem('currentEmail') || '';
         
         const generateBtn = document.getElementById('generateBtn');
@@ -242,11 +241,11 @@
         async function generateEmail() {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}/generate`);
+                const response = await fetch(`${API_URL}?action=genRandomMailbox&count=1`);
                 const data = await response.json();
                 
-                if (data.success && data.email) {
-                    currentEmail = data.email;
+                if (data && data.length > 0) {
+                    currentEmail = data[0];
                     localStorage.setItem('currentEmail', currentEmail);
                     
                     emailDisplay.innerHTML = `
@@ -260,7 +259,7 @@
                     showToast('Yeni e-posta adresi oluşturuldu!');
                     checkEmails();
                 } else {
-                    throw new Error(data.message || 'E-posta oluşturulamadı');
+                    throw new Error('E-posta oluşturulamadı');
                 }
             } catch (error) {
                 console.error('E-posta oluşturma hatası:', error);
@@ -278,14 +277,9 @@
 
             showLoading();
             try {
-                const response = await fetch(`${API_URL}/messages?email=${encodeURIComponent(currentEmail)}`);
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.message);
-                }
-
-                const messages = data.messages || [];
+                const [username, domain] = currentEmail.split('@');
+                const response = await fetch(`${API_URL}?action=getMessages&login=${username}&domain=${domain}`);
+                const messages = await response.json();
 
                 if (messages.length === 0) {
                     emailList.innerHTML = '<p style="padding: 1rem;">Henüz bir e-posta alınmadı.</p>';
@@ -294,7 +288,7 @@
                 }
 
                 const messagesHTML = messages.map(msg => `
-                    <div class="email-item" onclick="showEmailContent('${msg.id}')">
+                    <div class="email-item" onclick="showEmailContent('${username}', '${domain}', ${msg.id})">
                         <h3>${msg.subject || 'Konu Yok'}</h3>
                         <p>Gönderen: ${msg.from}</p>
                         <p>Tarih: ${new Date(msg.date).toLocaleString()}</p>
@@ -311,17 +305,11 @@
             }
         }
 
-        async function showEmailContent(messageId) {
+        async function showEmailContent(login, domain, id) {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}/message?email=${encodeURIComponent(currentEmail)}&id=${messageId}`);
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.message);
-                }
-
-                const email = data.message;
+                const response = await fetch(`${API_URL}?action=readMessage&login=${login}&domain=${domain}&id=${id}`);
+                const email = await response.json();
 
                 emailList.innerHTML = `
                     <div style="padding: 1rem;">
@@ -333,7 +321,7 @@
                         <p>Gönderen: ${email.from}</p>
                         <p>Tarih: ${new Date(email.date).toLocaleString()}</p>
                         <div style="margin-top: 1rem; padding: 1rem; background: var(--background-color); border-radius: 0.5rem;">
-                            ${email.html || email.text || 'İçerik yok'}
+                            ${email.htmlBody || email.textBody || 'İçerik yok'}
                         </div>
                     </div>
                 `;
