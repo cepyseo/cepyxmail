@@ -177,7 +177,7 @@
 </head>
 <body>
     <nav class="navbar">
-        <h1>CepyXmail</h1>
+        <h1>TempMail</h1>
     </nav>
 
     <div class="container">
@@ -208,8 +208,9 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        const API_URL = 'https://www.1secmail.com/api/v1/';
-        let currentEmail = localStorage.getItem('currentEmail') || '';
+        const API_URL = 'https://api.mail.gw';
+        const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+        let currentAccount = JSON.parse(localStorage.getItem('mailAccount')) || null;
         
         const generateBtn = document.getElementById('generateBtn');
         const checkMailBtn = document.getElementById('checkMailBtn');
@@ -218,6 +219,29 @@
         const emailList = document.getElementById('emailList');
         const loading = document.getElementById('loading');
         const toast = document.getElementById('toast');
+
+        async function makeRequest(endpoint, options = {}) {
+            try {
+                const url = `${CORS_PROXY}${encodeURIComponent(API_URL + endpoint)}`;
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(currentAccount?.token ? {'Authorization': `Bearer ${currentAccount.token}`} : {}),
+                        ...options.headers
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('API Request Error:', error);
+                throw error;
+            }
+        }
 
         function showLoading() {
             loading.style.display = 'flex';
@@ -239,46 +263,126 @@
             setTimeout(() => toast.style.display = 'none', 3000);
         }
 
+        async function getDomains() {
+            try {
+                const response = await makeRequest('/domains');
+                if (response && response['hydra:member'] && response['hydra:member'].length > 0) {
+                    return response['hydra:member'][0].domain;
+                }
+                throw new Error('No domains available');
+            } catch (error) {
+                console.error('GetDomains Error:', error);
+                throw error;
+            }
+        }
+
+        function generateRandomString(length) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < length; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
+        }
+
+        async function createAccount() {
+            try {
+                const domain = await getDomains();
+                const username = generateRandomString(12);
+                const password = generateRandomString(12);
+                const email = `${username}@${domain}`;
+
+                const accountData = await makeRequest('/accounts', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        address: email,
+                        password: password
+                    })
+                });
+
+                return { ...accountData, password };
+            } catch (error) {
+                console.error('CreateAccount Error:', error);
+                throw error;
+            }
+        }
+
+        async function getToken(email, password) {
+            try {
+                const tokenData = await makeRequest('/token', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        address: email,
+                        password: password
+                    })
+                });
+
+                return tokenData.token;
+            } catch (error) {
+                console.error('GetToken Error:', error);
+                throw error;
+            }
+        }
+
         async function generateEmail() {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}?action=genRandomMailbox&count=1`);
-                const data = await response.json();
+                const account = await createAccount();
+                const token = await getToken(account.address, account.password);
                 
-                if (data && data.length > 0) {
-                    currentEmail = data[0];
-                    localStorage.setItem('currentEmail', currentEmail);
-                    
-                    emailDisplay.innerHTML = `
-                        ${currentEmail}
-                        <button class="copy-btn" onclick="copyEmail()">
-                            <span class="material-icons">content_copy</span>
-                            Kopyala
-                        </button>
-                    `;
-                    
-                    showToast('Yeni e-posta adresi oluşturuldu!');
-                    checkEmails();
-                }
+                currentAccount = {
+                    ...account,
+                    token: token
+                };
+                
+                localStorage.setItem('mailAccount', JSON.stringify(currentAccount));
+                
+                emailDisplay.innerHTML = `
+                    ${account.address}
+                    <button class="copy-btn" onclick="copyEmail()">
+                        <span class="material-icons">content_copy</span>
+                        Kopyala
+                    </button>
+                `;
+                
+                showToast('Yeni e-posta adresi oluşturuldu!');
+                checkEmails();
             } catch (error) {
-                console.error('E-posta oluşturma hatası:', error);
-                showToast('Bir hata oluştu!');
+                console.error('GenerateEmail Error:', error);
+                showToast('E-posta oluşturulurken bir hata oluştu!');
             } finally {
                 hideLoading();
             }
         }
 
+        async function getMessages() {
+            try {
+                const response = await makeRequest('/messages');
+                return response['hydra:member'] || [];
+            } catch (error) {
+                console.error('GetMessages Error:', error);
+                throw error;
+            }
+        }
+
+        async function getMessage(id) {
+            try {
+                return await makeRequest(`/messages/${id}`);
+            } catch (error) {
+                console.error('GetMessage Error:', error);
+                throw error;
+            }
+        }
+
         async function checkEmails() {
-            if (!currentEmail) {
+            if (!currentAccount) {
                 showToast('Önce bir e-posta adresi oluşturun!');
                 return;
             }
 
             showLoading();
             try {
-                const [username, domain] = currentEmail.split('@');
-                const response = await fetch(`${API_URL}?action=getMessages&login=${username}&domain=${domain}`);
-                const messages = await response.json();
+                const messages = await getMessages();
 
                 if (messages.length === 0) {
                     emailList.innerHTML = '<p style="padding: 1rem;">Henüz bir e-posta alınmadı.</p>';
@@ -287,28 +391,27 @@
                 }
 
                 const messagesHTML = messages.map(msg => `
-                    <div class="email-item" onclick="showEmailContent('${username}', '${domain}', ${msg.id})">
+                    <div class="email-item" onclick="showEmailContent('${msg.id}')">
                         <h3>${msg.subject || 'Konu Yok'}</h3>
-                        <p>Gönderen: ${msg.from}</p>
-                        <p>Tarih: ${new Date(msg.date).toLocaleString()}</p>
+                        <p>Gönderen: ${msg.from.address}</p>
+                        <p>Tarih: ${new Date(msg.createdAt).toLocaleString()}</p>
                     </div>
                 `).join('');
 
                 emailList.innerHTML = messagesHTML;
                 showToast(`${messages.length} e-posta bulundu`);
             } catch (error) {
-                console.error('E-posta kontrol hatası:', error);
-                showToast('Bir hata oluştu!');
+                console.error('CheckEmails Error:', error);
+                showToast('E-postalar kontrol edilirken bir hata oluştu!');
             } finally {
                 hideLoading();
             }
         }
 
-        async function showEmailContent(login, domain, id) {
+        async function showEmailContent(id) {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}?action=readMessage&login=${login}&domain=${domain}&id=${id}`);
-                const email = await response.json();
+                const email = await getMessage(id);
 
                 emailList.innerHTML = `
                     <div style="padding: 1rem;">
@@ -317,32 +420,32 @@
                             Geri Dön
                         </button>
                         <h2 style="margin: 1rem 0;">${email.subject || 'Konu Yok'}</h2>
-                        <p>Gönderen: ${email.from}</p>
-                        <p>Tarih: ${new Date(email.date).toLocaleString()}</p>
+                        <p>Gönderen: ${email.from.address}</p>
+                        <p>Tarih: ${new Date(email.createdAt).toLocaleString()}</p>
                         <div style="margin-top: 1rem; padding: 1rem; background: var(--background-color); border-radius: 0.5rem;">
-                            ${email.htmlBody || email.textBody || 'İçerik yok'}
+                            ${email.html || email.text || 'İçerik yok'}
                         </div>
                     </div>
                 `;
             } catch (error) {
-                console.error('E-posta içeriği alma hatası:', error);
-                showToast('Bir hata oluştu!');
+                console.error('ShowEmailContent Error:', error);
+                showToast('E-posta içeriği alınırken bir hata oluştu!');
             } finally {
                 hideLoading();
             }
         }
 
         function copyEmail() {
-            if (currentEmail) {
-                navigator.clipboard.writeText(currentEmail)
+            if (currentAccount) {
+                navigator.clipboard.writeText(currentAccount.address)
                     .then(() => showToast('E-posta adresi kopyalandı!'))
                     .catch(() => showToast('Kopyalama başarısız!'));
             }
         }
 
         function resetEmail() {
-            currentEmail = '';
-            localStorage.removeItem('currentEmail');
+            currentAccount = null;
+            localStorage.removeItem('mailAccount');
             emailDisplay.innerHTML = 'Henüz bir e-posta adresi oluşturulmadı';
             emailList.innerHTML = '';
             showToast('E-posta adresi sıfırlandı!');
@@ -353,10 +456,10 @@
         checkMailBtn.addEventListener('click', checkEmails);
         resetBtn.addEventListener('click', resetEmail);
 
-        // Sayfa yüklendiğinde mevcut e-postayı göster
-        if (currentEmail) {
+        // Sayfa yüklendiğinde mevcut hesabı göster
+        if (currentAccount) {
             emailDisplay.innerHTML = `
-                ${currentEmail}
+                ${currentAccount.address}
                 <button class="copy-btn" onclick="copyEmail()">
                     <span class="material-icons">content_copy</span>
                     Kopyala
@@ -367,7 +470,7 @@
 
         // Otomatik kontrol
         setInterval(() => {
-            if (currentEmail) {
+            if (currentAccount) {
                 checkEmails();
             }
         }, 30000);
