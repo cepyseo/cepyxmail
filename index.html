@@ -207,6 +207,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
         const API_URL = 'https://www.1secmail.com/api/v1/';
         let currentEmail = localStorage.getItem('currentEmail') || '';
         
@@ -238,11 +239,16 @@
             setTimeout(() => toast.style.display = 'none', 3000);
         }
 
+        async function makeRequest(url) {
+            const response = await fetch(CORS_PROXY + encodeURIComponent(url));
+            return response.json();
+        }
+
         async function generateEmail() {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}?action=genRandomMailbox&count=1`);
-                const data = await response.json();
+                const url = `${API_URL}?action=genRandomMailbox&count=1`;
+                const data = await makeRequest(url);
                 
                 if (data && data.length > 0) {
                     currentEmail = data[0];
@@ -258,8 +264,6 @@
                     
                     showToast('Yeni e-posta adresi oluşturuldu!');
                     checkEmails();
-                } else {
-                    throw new Error('E-posta oluşturulamadı');
                 }
             } catch (error) {
                 console.error('E-posta oluşturma hatası:', error);
@@ -278,8 +282,8 @@
             showLoading();
             try {
                 const [username, domain] = currentEmail.split('@');
-                const response = await fetch(`${API_URL}?action=getMessages&login=${username}&domain=${domain}`);
-                const messages = await response.json();
+                const url = `${API_URL}?action=getMessages&login=${username}&domain=${domain}`;
+                const messages = await makeRequest(url);
 
                 if (messages.length === 0) {
                     emailList.innerHTML = '<p style="padding: 1rem;">Henüz bir e-posta alınmadı.</p>';
@@ -308,8 +312,8 @@
         async function showEmailContent(login, domain, id) {
             showLoading();
             try {
-                const response = await fetch(`${API_URL}?action=readMessage&login=${login}&domain=${domain}&id=${id}`);
-                const email = await response.json();
+                const url = `${API_URL}?action=readMessage&login=${login}&domain=${domain}&id=${id}`;
+                const email = await makeRequest(url);
 
                 emailList.innerHTML = `
                     <div style="padding: 1rem;">
